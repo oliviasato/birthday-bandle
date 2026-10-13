@@ -1,10 +1,13 @@
 import base64
-import json
+# import json
 from pathlib import Path
 
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
+# import streamlit.components.v1 as components
+
+from io import BytesIO
+from pydub import AudioSegment
 
 
 # --------------------------------------------------
@@ -207,195 +210,71 @@ def get_audio_tracks(number_of_tracks):
     return audio_tracks
 
 
-def show_combined_audio(audio_tracks):
+@st.cache_data
+def create_combined_audio(track_count):
     """
-    Mixes all currently unlocked MP3 tracks into one browser audio player.
-    """
-
-    tracks_json = json.dumps(audio_tracks)
-
-    mixer_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <body style="
-        margin: 0;
-        padding: 0;
-        background: transparent;
-        font-family: Arial, sans-serif;
-        color: white;
-    ">
-        <div id="message" style="margin-bottom: 8px;">
-            Preparing combined audio...
-        </div>
-
-        <audio
-            id="player"
-            controls
-            style="width: 100%; display: none;"
-        ></audio>
-
-        <script>
-            const trackData = {tracks_json};
-
-            function base64ToArrayBuffer(base64) {{
-                const binary = atob(base64);
-                const bytes = new Uint8Array(binary.length);
-
-                for (let i = 0; i < binary.length; i++) {{
-                    bytes[i] = binary.charCodeAt(i);
-                }}
-
-                return bytes.buffer;
-            }}
-
-            function audioBufferToWav(buffer) {{
-                const numberOfChannels = buffer.numberOfChannels;
-                const sampleRate = buffer.sampleRate;
-                const bytesPerSample = 2;
-                const blockAlign = numberOfChannels * bytesPerSample;
-                const dataSize = buffer.length * blockAlign;
-
-                const arrayBuffer = new ArrayBuffer(44 + dataSize);
-                const view = new DataView(arrayBuffer);
-
-                function writeString(offset, text) {{
-                    for (let i = 0; i < text.length; i++) {{
-                        view.setUint8(offset + i, text.charCodeAt(i));
-                    }}
-                }}
-
-                writeString(0, "RIFF");
-                view.setUint32(4, 36 + dataSize, true);
-                writeString(8, "WAVE");
-                writeString(12, "fmt ");
-
-                view.setUint32(16, 16, true);
-                view.setUint16(20, 1, true);
-                view.setUint16(22, numberOfChannels, true);
-                view.setUint32(24, sampleRate, true);
-                view.setUint32(
-                    28,
-                    sampleRate * blockAlign,
-                    true
-                );
-                view.setUint16(32, blockAlign, true);
-                view.setUint16(34, 16, true);
-
-                writeString(36, "data");
-                view.setUint32(40, dataSize, true);
-
-                let offset = 44;
-
-                for (let i = 0; i < buffer.length; i++) {{
-                    for (let channel = 0; channel < numberOfChannels; channel++) {{
-                        let sample = buffer.getChannelData(channel)[i];
-
-                        sample = Math.max(-1, Math.min(1, sample));
-
-                        const integerSample =
-                            sample < 0
-                                ? sample * 0x8000
-                                : sample * 0x7FFF;
-
-                        view.setInt16(
-                            offset,
-                            Math.round(integerSample),
-                            true
-                        );
-
-                        offset += 2;
-                    }}
-                }}
-
-                return new Blob(
-                    [arrayBuffer],
-                    {{ type: "audio/wav" }}
-                );
-            }}
-
-            async function createMixedAudio() {{
-                const message = document.getElementById("message");
-                const player = document.getElementById("player");
-
-                if (!trackData.length) {{
-                    message.textContent = "No audio tracks found.";
-                    return;
-                }}
-
-                try {{
-                    const decodeContext = new AudioContext();
-                    const decodedTracks = [];
-
-                    for (const encodedTrack of trackData) {{
-                        const arrayBuffer =
-                            base64ToArrayBuffer(encodedTrack);
-
-                        const decoded =
-                            await decodeContext.decodeAudioData(
-                                arrayBuffer.slice(0)
-                            );
-
-                        decodedTracks.push(decoded);
-                    }}
-
-                    const sampleRate = 44100;
-
-                    const longestDuration = Math.max(
-                        ...decodedTracks.map(
-                            track => track.duration
-                        )
-                    );
-
-                    const frameCount = Math.ceil(
-                        longestDuration * sampleRate
-                    );
-
-                    const offlineContext =
-                        new OfflineAudioContext(
-                            2,
-                            frameCount,
-                            sampleRate
-                        );
-
-                    for (const decodedTrack of decodedTracks) {{
-                        const source =
-                            offlineContext.createBufferSource();
-
-                        source.buffer = decodedTrack;
-                        source.connect(
-                            offlineContext.destination
-                        );
-                        source.start(0);
-                    }}
-
-                    const renderedAudio =
-                        await offlineContext.startRendering();
-
-                    const wavBlob =
-                        audioBufferToWav(renderedAudio);
-
-                    const audioUrl =
-                        URL.createObjectURL(wavBlob);
-
-                    player.src = audioUrl;
-                    player.style.display = "block";
-                    message.textContent =
-                        "All unlocked tracks are combined:";
-
-                }} catch (error) {{
-                    console.error(error);
-                    message.textContent =
-                        "Audio error: " + error.message;
-                }}
-            }}
-
-            createMixedAudio();
-        </script>
-    </body>
-    </html>
+    Mixes track1.mp3 through trackN.mp3 together.
+    Every track starts at time zero.
+    Shorter tracks simply end earlier.
     """
 
-    components.html(mixer_html, height=85)
+    audio_folder = Path(__file__).parent / "audio"
+
+    track_paths = [
+        audio_folder / f"track{i}.mp3"
+        for i in range(1, track_count + 1)
+    ]
+
+    missing_files = [
+        str(path)
+        for path in track_paths
+        if not path.exists()
+    ]
+
+    if missing_files:
+        raise FileNotFoundError(
+            "Missing audio file(s): " + ", ".join(missing_files)
+        )
+
+    # Load the first track as the base.
+    combined = AudioSegment.from_file(
+        track_paths[0],
+        format="mp3",
+    )
+
+    # Standardize audio format for reliable mixing.
+    combined = (
+        combined
+        .set_frame_rate(44100)
+        .set_channels(2)
+        .set_sample_width(2)
+    )
+
+    # Add each later track at time zero.
+    for track_path in track_paths[1:]:
+        next_track = AudioSegment.from_file(
+            track_path,
+            format="mp3",
+        )
+
+        next_track = (
+            next_track
+            .set_frame_rate(44100)
+            .set_channels(2)
+            .set_sample_width(2)
+        )
+
+        combined = combined.overlay(next_track)
+
+    # Convert the final mix to WAV bytes.
+    output = BytesIO()
+
+    combined.export(
+        output,
+        format="wav",
+    )
+
+    return output.getvalue()
 
 
 # --------------------------------------------------
