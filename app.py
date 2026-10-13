@@ -391,31 +391,18 @@ if "game_won" not in st.session_state:
     st.session_state.game_won = False
 
 
-# --------------------------------------------------
 # Top-of-page song info
-# --------------------------------------------------
 
-st.markdown(
-    """
-    <div class="song-info">
-        <div class="info-box">
-            <span class="info-label">VIEWS</span>
-            <span class="info-value">100 billion</span>
-        </div>
+info_col1, info_col2, info_col3 = st.columns(3)
 
-        <div class="info-box">
-            <span class="info-label">GENRE</span>
-            <span class="info-value">Alternative</span>
-        </div>
+with info_col1:
+    st.metric("VIEWS", "100 billion")
 
-        <div class="info-box">
-            <span class="info-label">YEAR</span>
-            <span class="info-value">1999/2026</span>
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+with info_col2:
+    st.metric("GENRE", "Alternative")
+
+with info_col3:
+    st.metric("YEAR", "1999/2026")
 
 
 # --------------------------------------------------
