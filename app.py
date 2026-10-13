@@ -6,9 +6,9 @@ import requests
 import streamlit as st
 
 
-# --------------------------------------------------
+# -----------------------------
 # Page setup
-# --------------------------------------------------
+# -----------------------------
 
 st.set_page_config(
     page_title="Normal Bandle",
@@ -16,49 +16,105 @@ st.set_page_config(
 )
 
 
-# --------------------------------------------------
-# Styling
-# --------------------------------------------------
+# -----------------------------
+# Visual styling
+# -----------------------------
 
 st.markdown(
     """
     <style>
         .stApp {
-            background: linear-gradient(180deg, #321d43, #17131d);
-            color: white;
+            background: #071525;
+            color: #f2f4f7;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        .block-container {
+            max-width: 720px;
+            padding-top: 2rem;
+            padding-bottom: 3rem;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 2.2rem !important;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            margin-bottom: 0.25rem;
+        }
+
+        h2, h3 {
+            font-weight: 700;
+            letter-spacing: -0.2px;
+        }
+
+        p {
+            line-height: 1.35;
         }
 
         .track-box {
-            background: #292331;
-            border: 1px solid #51445c;
-            border-radius: 14px;
-            padding: 16px;
-            margin: 12px 0;
+            background: #d9dde3;
+            color: #17202b;
+            border: 1px solid #eef1f4;
+            border-radius: 7px;
+            padding: 11px 14px;
+            margin: 7px 0;
+            font-size: 0.92rem;
         }
 
         .track-name {
-            color: #f5ba3c;
-            font-weight: bold;
-            letter-spacing: 2px;
-            margin-bottom: 8px;
+            color: #17202b;
+            font-weight: 700;
+            letter-spacing: 0.8px;
+            font-size: 0.82rem;
+            margin-bottom: 4px;
         }
 
         .locked {
-            color: #99909f;
-            opacity: 0.6;
+            background: #aeb5be;
+            color: #3f4852;
+            border-color: #c4c9cf;
+        }
+
+        .locked .track-name {
+            color: #3f4852;
         }
 
         .answer-box {
-            background: #382548;
-            border: 2px solid #f5ba3c;
-            border-radius: 18px;
-            padding: 25px;
+            background: #132d49;
+            border: 1px solid #6f91b4;
+            border-radius: 9px;
+            padding: 20px;
             text-align: center;
-            margin-top: 25px;
+            margin-top: 22px;
         }
 
         .answer-box h2 {
-            color: #f5ba3c;
+            color: #ffffff;
+            margin-bottom: 8px;
+        }
+
+        .stMetric {
+            background: #10263d;
+            border: 1px solid #284968;
+            border-radius: 7px;
+            padding: 8px;
+        }
+
+        .stMetric label {
+            font-size: 0.72rem !important;
+        }
+
+        .stMetric [data-testid="stMetricValue"] {
+            font-size: 1.05rem;
+        }
+
+        audio {
+            width: 100%;
+        }
+
+        button {
+            border-radius: 6px !important;
         }
     </style>
     """,
@@ -66,9 +122,9 @@ st.markdown(
 )
 
 
-# --------------------------------------------------
+# -----------------------------
 # Audio settings
-# --------------------------------------------------
+# -----------------------------
 
 AUDIO_FOLDER = Path(__file__).parent / "audio"
 
@@ -81,21 +137,12 @@ TRACK_NAMES = [
 ]
 
 
-# --------------------------------------------------
-# Audio mixing with FFmpeg
-# --------------------------------------------------
+# -----------------------------
+# Combine audio with FFmpeg
+# -----------------------------
 
 @st.cache_data
 def create_combined_audio(track_count):
-    """
-    Mixes track1.mp3 through trackN.mp3.
-
-    Every track begins at time zero.
-    Tracks are not stretched or time-distorted.
-    Shorter tracks end naturally.
-    The combined audio lasts as long as the longest track.
-    """
-
     track_paths = [
         AUDIO_FOLDER / f"track{i}.mp3"
         for i in range(1, track_count + 1)
@@ -115,14 +162,9 @@ def create_combined_audio(track_count):
 
     command = ["ffmpeg", "-y"]
 
-    # Add every MP3 as an input.
     for path in track_paths:
-        command.extend([
-            "-i",
-            str(path),
-        ])
+        command.extend(["-i", str(path)])
 
-    # Put every track into the mix from time zero.
     filter_text = (
         f"amix=inputs={track_count}:"
         "duration=longest:"
@@ -130,18 +172,20 @@ def create_combined_audio(track_count):
         "normalize=1"
     )
 
-    command.extend([
-        "-filter_complex",
-        filter_text,
-        "-vn",
-        "-ac",
-        "2",
-        "-ar",
-        "44100",
-        "-f",
-        "wav",
-        "pipe:1",
-    ])
+    command.extend(
+        [
+            "-filter_complex",
+            filter_text,
+            "-vn",
+            "-ac",
+            "2",
+            "-ar",
+            "44100",
+            "-f",
+            "wav",
+            "pipe:1",
+        ]
+    )
 
     result = subprocess.run(
         command,
@@ -156,10 +200,7 @@ def create_combined_audio(track_count):
             errors="replace",
         )
 
-        raise RuntimeError(
-            "FFmpeg could not mix the audio:\n"
-            + error_message
-        )
+        raise RuntimeError(error_message)
 
     if not result.stdout:
         raise RuntimeError(
@@ -169,9 +210,9 @@ def create_combined_audio(track_count):
     return result.stdout
 
 
-# --------------------------------------------------
-# Spotify API functions
-# --------------------------------------------------
+# -----------------------------
+# Spotify functions
+# -----------------------------
 
 @st.cache_data(ttl=3300)
 def get_spotify_token(client_id, client_secret):
@@ -234,21 +275,21 @@ def search_spotify(query, client_id, client_secret):
     results = []
 
     for track in tracks:
-        artist_names = ", ".join(
+        artists = ", ".join(
             artist["name"]
             for artist in track.get("artists", [])
         )
 
         results.append(
-            f"{track['name']} — {artist_names}"
+            f"{track['name']} — {artists}"
         )
 
     return results
 
 
-# --------------------------------------------------
+# -----------------------------
 # Session state
-# --------------------------------------------------
+# -----------------------------
 
 if "guess_number" not in st.session_state:
     st.session_state.guess_number = 0
@@ -260,9 +301,9 @@ if "game_won" not in st.session_state:
     st.session_state.game_won = False
 
 
-# --------------------------------------------------
-# Song information at the top
-# --------------------------------------------------
+# -----------------------------
+# Song information
+# -----------------------------
 
 info_col1, info_col2, info_col3 = st.columns(3)
 
@@ -276,33 +317,28 @@ with info_col3:
     st.metric("YEAR", "1999/2026")
 
 
-# --------------------------------------------------
+# -----------------------------
 # Title
-# --------------------------------------------------
+# -----------------------------
 
 st.title("Normal Bandle")
 
 st.markdown(
-    "<p style='text-align:center; color:#c8bfd0;'>"
+    "<p style='text-align:center; color:#aebdce; margin-top:0;'>"
     "Guess the song one track at a time."
     "</p>",
     unsafe_allow_html=True,
 )
 
 
-# --------------------------------------------------
-# Determine unlocked tracks
-# --------------------------------------------------
+# -----------------------------
+# Unlocked tracks
+# -----------------------------
 
 current_track_count = min(
     st.session_state.guess_number + 1,
     5,
 )
-
-
-# --------------------------------------------------
-# Display track labels
-# --------------------------------------------------
 
 for index, track_name in enumerate(TRACK_NAMES):
     track_number = index + 1
@@ -326,16 +362,16 @@ for index, track_name in enumerate(TRACK_NAMES):
                 <div class="track-name">
                     {track_name.upper()}
                 </div>
-                🔒 Locked
+                Locked
             </div>
             """,
             unsafe_allow_html=True,
         )
 
 
-# --------------------------------------------------
-# Display one combined audio player
-# --------------------------------------------------
+# -----------------------------
+# Combined audio player
+# -----------------------------
 
 try:
     combined_audio = create_combined_audio(
@@ -352,19 +388,13 @@ try:
     )
 
 except Exception as error:
-    st.error(
-        "Could not combine the audio."
-    )
-
-    st.code(
-        str(error),
-        language="text",
-    )
+    st.error("Could not combine the audio.")
+    st.code(str(error), language="text")
 
 
-# --------------------------------------------------
-# Guess search
-# --------------------------------------------------
+# -----------------------------
+# Guess input
+# -----------------------------
 
 st.subheader("Make a guess")
 
@@ -374,7 +404,6 @@ guess_text = st.text_input(
 )
 
 
-# Read Spotify credentials safely.
 try:
     client_id = st.secrets.get(
         "SPOTIFY_CLIENT_ID",
@@ -404,10 +433,9 @@ if guess_text.strip() and len(guess_text.strip()) >= 2:
 
         except Exception:
             st.caption(
-                "Spotify search is unavailable right now. "
+                "Spotify search is unavailable. "
                 "You can still submit your typed guess."
             )
-
     else:
         st.caption(
             "Spotify credentials are not set. "
@@ -422,14 +450,13 @@ if spotify_results:
     )
 
     final_guess = selected_result
-
 else:
     final_guess = guess_text.strip()
 
 
-# --------------------------------------------------
+# -----------------------------
 # Submit guess
-# --------------------------------------------------
+# -----------------------------
 
 button_disabled = (
     not final_guess
@@ -454,9 +481,9 @@ if st.button(
     st.rerun()
 
 
-# --------------------------------------------------
+# -----------------------------
 # Guess history
-# --------------------------------------------------
+# -----------------------------
 
 if st.session_state.guesses:
     st.subheader("Guesses")
@@ -477,9 +504,9 @@ if st.session_state.guesses:
             )
 
 
-# --------------------------------------------------
+# -----------------------------
 # Final answer
-# --------------------------------------------------
+# -----------------------------
 
 if st.session_state.game_won:
     st.markdown(
