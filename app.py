@@ -80,29 +80,19 @@ st.markdown(
             color: #3f4852;
         }
 
-        .clue-box {
-            background: #10263d;
-            border: 1px solid #6f91b4;
-            border-radius: 8px;
-            padding: 16px;
-            text-align: center;
-            margin-top: 18px;
-            font-size: 1.1rem;
-            font-weight: 700;
-        }
-
         .answer-box {
             background: #132d49;
             border: 1px solid #6f91b4;
             border-radius: 9px;
             padding: 20px;
             text-align: center;
-            margin-top: 18px;
+            margin: 22px 0;
         }
 
         .answer-box h2 {
             color: #ffffff;
-            margin-bottom: 8px;
+            font-size: 1.35rem;
+            margin: 0;
         }
 
         .stMetric {
@@ -309,9 +299,6 @@ if "guess_number" not in st.session_state:
 if "guesses" not in st.session_state:
     st.session_state.guesses = []
 
-if "clue_shown" not in st.session_state:
-    st.session_state.clue_shown = False
-
 
 # -----------------------------
 # Song information
@@ -409,40 +396,18 @@ except Exception as error:
 
 
 # -----------------------------
-# Get a clue
-# This appears directly below
-# the instruments and audio.
+# Final answer after fifth guess
 # -----------------------------
 
 if st.session_state.guess_number >= 5:
-    if not st.session_state.clue_shown:
-        if st.button(
-            "Get a clue",
-            use_container_width=True,
-        ):
-            st.session_state.clue_shown = True
-            st.rerun()
-
-    else:
-        st.markdown(
-            """
-            <div class="clue-box">
-                phone a friend
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            """
-            <div class="answer-box">
-                <h2>HAPPY BIRTHDAY IAN</h2>
-                <h3>“HAPPY BIRTHDAY IAN”</h3>
-                <p>by <strong>Lil Snatch</strong></p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        """
+        <div class="answer-box">
+            <h2>“HAPPY BIRTHDAY IAN” by Lil Snatch</h2>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # -----------------------------
