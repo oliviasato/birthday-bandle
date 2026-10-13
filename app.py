@@ -209,11 +209,7 @@ def get_audio_tracks(number_of_tracks):
 
 def show_combined_audio(audio_tracks):
     """
-    Creates one combined audio player in the browser.
-
-    The browser loads all currently unlocked tracks,
-    lines them up at the same start time, mixes them,
-    and displays only one player.
+    Mixes all currently unlocked MP3 tracks into one browser audio player.
     """
 
     tracks_json = json.dumps(audio_tracks)
@@ -242,31 +238,29 @@ def show_combined_audio(audio_tracks):
             const trackData = {tracks_json};
 
             function base64ToArrayBuffer(base64) {{
-                const binaryString = atob(base64);
-                const length = binaryString.length;
-                const bytes = new Uint8Array(length);
+                const binary = atob(base64);
+                const bytes = new Uint8Array(binary.length);
 
-                for (let i = 0; i < length; i++) {{
-                    bytes[i] = binaryString.charCodeAt(i);
+                for (let i = 0; i < binary.length; i++) {{
+                    bytes[i] = binary.charCodeAt(i);
                 }}
 
                 return bytes.buffer;
             }}
 
             function audioBufferToWav(buffer) {{
-                const numberOfChannels = 2;
+                const numberOfChannels = buffer.numberOfChannels;
                 const sampleRate = buffer.sampleRate;
-                const numberOfFrames = buffer.length;
                 const bytesPerSample = 2;
                 const blockAlign = numberOfChannels * bytesPerSample;
-                const dataSize = numberOfFrames * blockAlign;
+                const dataSize = buffer.length * blockAlign;
 
                 const arrayBuffer = new ArrayBuffer(44 + dataSize);
                 const view = new DataView(arrayBuffer);
 
-                function writeString(offset, string) {{
-                    for (let i = 0; i < string.length; i++) {{
-                        view.setUint8(offset + i, string.charCodeAt(i));
+                function writeString(offset, text) {{
+                    for (let i = 0; i < text.length; i++) {{
+                        view.setUint8(offset + i, text.charCodeAt(i));
                     }}
                 }}
 
@@ -274,6 +268,7 @@ def show_combined_audio(audio_tracks):
                 view.setUint32(4, 36 + dataSize, true);
                 writeString(8, "WAVE");
                 writeString(12, "fmt ");
+
                 view.setUint32(16, 16, true);
                 view.setUint16(20, 1, true);
                 view.setUint16(22, numberOfChannels, true);
@@ -285,12 +280,13 @@ def show_combined_audio(audio_tracks):
                 );
                 view.setUint16(32, blockAlign, true);
                 view.setUint16(34, 16, true);
+
                 writeString(36, "data");
                 view.setUint32(40, dataSize, true);
 
                 let offset = 44;
 
-                for (let i = 0; i < numberOfFrames; i++) {{
+                for (let i = 0; i < buffer.length; i++) {{
                     for (let channel = 0; channel < numberOfChannels; channel++) {{
                         let sample = buffer.getChannelData(channel)[i];
 
@@ -301,12 +297,20 @@ def show_combined_audio(audio_tracks):
                                 ? sample * 0x8000
                                 : sample * 0x7FFF;
 
-                        view.setInt16(offset, integerSample, true);
+                        view.setInt16(
+                            offset,
+                            Math.round(integerSample),
+                            true
+                        );
+
                         offset += 2;
                     }}
                 }}
 
-                return new Blob([view], {{ type: "audio/wav" }});
+                return new Blob(
+                    [arrayBuffer],
+                    {{ type: "audio/wav" }}
+                );
             }}
 
             async function createMixedAudio() {{
@@ -318,63 +322,80 @@ def show_combined_audio(audio_tracks):
                     return;
                 }}
 
-                const decodeContext = new AudioContext();
-                const decodedTracks = [];
+                try {{
+                    const decodeContext = new AudioContext();
+                    const decodedTracks = [];
 
-                for (const base64Audio of trackData) {{
-                    const arrayBuffer = base64ToArrayBuffer(base64Audio);
-                    const decoded = await decodeContext.decodeAudioData(
-                        arrayBuffer
+                    for (const encodedTrack of trackData) {{
+                        const arrayBuffer =
+                            base64ToArrayBuffer(encodedTrack);
+
+                        const decoded =
+                            await decodeContext.decodeAudioData(
+                                arrayBuffer.slice(0)
+                            );
+
+                        decodedTracks.push(decoded);
+                    }}
+
+                    const sampleRate = 44100;
+
+                    const longestDuration = Math.max(
+                        ...decodedTracks.map(
+                            track => track.duration
+                        )
                     );
-                    decodedTracks.push(decoded);
+
+                    const frameCount = Math.ceil(
+                        longestDuration * sampleRate
+                    );
+
+                    const offlineContext =
+                        new OfflineAudioContext(
+                            2,
+                            frameCount,
+                            sampleRate
+                        );
+
+                    for (const decodedTrack of decodedTracks) {{
+                        const source =
+                            offlineContext.createBufferSource();
+
+                        source.buffer = decodedTrack;
+                        source.connect(
+                            offlineContext.destination
+                        );
+                        source.start(0);
+                    }}
+
+                    const renderedAudio =
+                        await offlineContext.startRendering();
+
+                    const wavBlob =
+                        audioBufferToWav(renderedAudio);
+
+                    const audioUrl =
+                        URL.createObjectURL(wavBlob);
+
+                    player.src = audioUrl;
+                    player.style.display = "block";
+                    message.textContent =
+                        "All unlocked tracks are combined:";
+
+                }} catch (error) {{
+                    console.error(error);
+                    message.textContent =
+                        "Audio error: " + error.message;
                 }}
-
-                const sampleRate = 44100;
-
-                const longestDuration = Math.max(
-                    ...decodedTracks.map(track => track.duration)
-                );
-
-                const frameCount = Math.ceil(
-                    longestDuration * sampleRate
-                );
-
-                const offlineContext = new OfflineAudioContext(
-                    2,
-                    frameCount,
-                    sampleRate
-                );
-
-                for (const decodedTrack of decodedTracks) {{
-                    const source = offlineContext.createBufferSource();
-
-                    source.buffer = decodedTrack;
-                    source.connect(offlineContext.destination);
-                    source.start(0);
-                }}
-
-                const renderedAudio =
-                    await offlineContext.startRendering();
-
-                const wavBlob = audioBufferToWav(renderedAudio);
-                const audioUrl = URL.createObjectURL(wavBlob);
-
-                player.src = audioUrl;
-                player.style.display = "block";
-                message.textContent = "Now playing all unlocked tracks together:";
             }}
 
-            createMixedAudio().catch(error => {{
-                console.error(error);
-                document.getElementById("message").textContent =
-                    "Could not prepare the combined audio.";
-            }});
+            createMixedAudio();
         </script>
     </body>
     </html>
     """
 
-    components.html(mixer_html, height=75)
+    components.html(mixer_html, height=85)
 
 
 # --------------------------------------------------
