@@ -91,6 +91,20 @@ st.markdown(
             font-weight: 700;
         }
 
+        .answer-box {
+            background: #132d49;
+            border: 1px solid #6f91b4;
+            border-radius: 9px;
+            padding: 20px;
+            text-align: center;
+            margin-top: 18px;
+        }
+
+        .answer-box h2 {
+            color: #ffffff;
+            margin-bottom: 8px;
+        }
+
         .stMetric {
             background: #10263d;
             border: 1px solid #284968;
@@ -330,13 +344,18 @@ st.markdown(
 
 
 # -----------------------------
-# Unlocked tracks
+# Determine unlocked tracks
 # -----------------------------
 
 current_track_count = min(
     st.session_state.guess_number + 1,
     5,
 )
+
+
+# -----------------------------
+# Display instruments
+# -----------------------------
 
 for index, track_name in enumerate(TRACK_NAMES):
     track_number = index + 1
@@ -390,6 +409,43 @@ except Exception as error:
 
 
 # -----------------------------
+# Get a clue
+# This appears directly below
+# the instruments and audio.
+# -----------------------------
+
+if st.session_state.guess_number >= 5:
+    if not st.session_state.clue_shown:
+        if st.button(
+            "Get a clue",
+            use_container_width=True,
+        ):
+            st.session_state.clue_shown = True
+            st.rerun()
+
+    else:
+        st.markdown(
+            """
+            <div class="clue-box">
+                phone a friend
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            """
+            <div class="answer-box">
+                <h2>HAPPY BIRTHDAY IAN</h2>
+                <h3>“HAPPY BIRTHDAY IAN”</h3>
+                <p>by <strong>Lil Snatch</strong></p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+# -----------------------------
 # Guess input
 # -----------------------------
 
@@ -400,6 +456,10 @@ guess_text = st.text_input(
     placeholder="Start typing a song title...",
 )
 
+
+# -----------------------------
+# Spotify credentials
+# -----------------------------
 
 try:
     client_id = st.secrets.get(
@@ -417,6 +477,10 @@ except Exception:
     client_secret = ""
 
 
+# -----------------------------
+# Spotify search results
+# -----------------------------
+
 spotify_results = []
 
 if guess_text.strip() and len(guess_text.strip()) >= 2:
@@ -433,6 +497,7 @@ if guess_text.strip() and len(guess_text.strip()) >= 2:
                 "Spotify search is unavailable. "
                 "You can still submit your typed guess."
             )
+
     else:
         st.caption(
             "Spotify credentials are not set. "
@@ -447,6 +512,7 @@ if spotify_results:
     )
 
     final_guess = selected_result
+
 else:
     final_guess = guess_text.strip()
 
@@ -488,28 +554,4 @@ if st.session_state.guesses:
         st.write(
             f"**Guess {number}:** "
             f"{guess} — ❌"
-        )
-
-
-# -----------------------------
-# Get a clue
-# -----------------------------
-
-if st.session_state.guess_number >= 5:
-    if not st.session_state.clue_shown:
-        if st.button(
-            "Get a clue",
-            use_container_width=True,
-        ):
-            st.session_state.clue_shown = True
-            st.rerun()
-
-    else:
-        st.markdown(
-            """
-            <div class="clue-box">
-                phone a friend
-            </div>
-            """,
-            unsafe_allow_html=True,
         )
