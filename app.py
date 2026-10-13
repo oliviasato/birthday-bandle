@@ -1,10 +1,9 @@
-from io import BytesIO
-from pathlib import Path
 import base64
+import subprocess
+from pathlib import Path
 
 import requests
 import streamlit as st
-from pydub import AudioSegment
 
 
 # --------------------------------------------------
@@ -68,7 +67,7 @@ st.markdown(
 
 
 # --------------------------------------------------
-# File locations
+# Audio settings
 # --------------------------------------------------
 
 AUDIO_FOLDER = Path(__file__).parent / "audio"
@@ -83,17 +82,18 @@ TRACK_NAMES = [
 
 
 # --------------------------------------------------
-# Mix audio tracks
+# Audio mixing with FFmpeg
 # --------------------------------------------------
 
 @st.cache_data
 def create_combined_audio(track_count):
     """
-    Mixes the first track_count MP3 files together.
+    Mixes track1.mp3 through trackN.mp3.
 
     Every track begins at time zero.
-    Tracks do not get stretched or time-distorted.
-    Shorter tracks simply end when their audio ends.
+    Tracks are not stretched or time-distorted.
+    Shorter tracks end naturally.
+    The combined audio lasts as long as the longest track.
     """
 
     track_paths = [
@@ -113,49 +113,64 @@ def create_combined_audio(track_count):
             + ", ".join(missing_files)
         )
 
-    # Load the first track.
-    combined = AudioSegment.from_file(
-        track_paths[0],
-        format="mp3",
+    command = ["ffmpeg", "-y"]
+
+    # Add every MP3 as an input.
+    for path in track_paths:
+        command.extend([
+            "-i",
+            str(path),
+        ])
+
+    # Put every track into the mix from time zero.
+    filter_text = (
+        f"amix=inputs={track_count}:"
+        "duration=longest:"
+        "dropout_transition=0:"
+        "normalize=1"
     )
 
-    # Standardize format without changing the timing.
-    combined = (
-        combined
-        .set_frame_rate(44100)
-        .set_channels(2)
-        .set_sample_width(2)
+    command.extend([
+        "-filter_complex",
+        filter_text,
+        "-vn",
+        "-ac",
+        "2",
+        "-ar",
+        "44100",
+        "-f",
+        "wav",
+        "pipe:1",
+    ])
+
+    result = subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
     )
 
-    # Overlay every additional track from time zero.
-    for track_path in track_paths[1:]:
-        next_track = AudioSegment.from_file(
-            track_path,
-            format="mp3",
+    if result.returncode != 0:
+        error_message = result.stderr.decode(
+            "utf-8",
+            errors="replace",
         )
 
-        next_track = (
-            next_track
-            .set_frame_rate(44100)
-            .set_channels(2)
-            .set_sample_width(2)
+        raise RuntimeError(
+            "FFmpeg could not mix the audio:\n"
+            + error_message
         )
 
-        combined = combined.overlay(next_track)
+    if not result.stdout:
+        raise RuntimeError(
+            "FFmpeg produced an empty audio file."
+        )
 
-    # Export one combined WAV file in memory.
-    output = BytesIO()
-
-    combined.export(
-        output,
-        format="wav",
-    )
-
-    return output.getvalue()
+    return result.stdout
 
 
 # --------------------------------------------------
-# Spotify functions
+# Spotify API functions
 # --------------------------------------------------
 
 @st.cache_data(ttl=3300)
@@ -276,7 +291,7 @@ st.markdown(
 
 
 # --------------------------------------------------
-# Determine which tracks are unlocked
+# Determine unlocked tracks
 # --------------------------------------------------
 
 current_track_count = min(
@@ -286,7 +301,7 @@ current_track_count = min(
 
 
 # --------------------------------------------------
-# Track labels
+# Display track labels
 # --------------------------------------------------
 
 for index, track_name in enumerate(TRACK_NAMES):
@@ -319,7 +334,7 @@ for index, track_name in enumerate(TRACK_NAMES):
 
 
 # --------------------------------------------------
-# One combined audio player
+# Display one combined audio player
 # --------------------------------------------------
 
 try:
@@ -338,8 +353,12 @@ try:
 
 except Exception as error:
     st.error(
-        "Could not combine the audio. "
-        f"Details: {error}"
+        "Could not combine the audio."
+    )
+
+    st.code(
+        str(error),
+        language="text",
     )
 
 
@@ -355,7 +374,7 @@ guess_text = st.text_input(
 )
 
 
-# Safely read Spotify secrets.
+# Read Spotify credentials safely.
 try:
     client_id = st.secrets.get(
         "SPOTIFY_CLIENT_ID",
@@ -366,6 +385,7 @@ try:
         "SPOTIFY_CLIENT_SECRET",
         "",
     )
+
 except Exception:
     client_id = ""
     client_secret = ""
@@ -381,11 +401,13 @@ if guess_text.strip() and len(guess_text.strip()) >= 2:
                 client_id,
                 client_secret,
             )
+
         except Exception:
             st.caption(
                 "Spotify search is unavailable right now. "
                 "You can still submit your typed guess."
             )
+
     else:
         st.caption(
             "Spotify credentials are not set. "
@@ -400,6 +422,7 @@ if spotify_results:
     )
 
     final_guess = selected_result
+
 else:
     final_guess = guess_text.strip()
 
@@ -455,7 +478,7 @@ if st.session_state.guesses:
 
 
 # --------------------------------------------------
-# Final reveal
+# Final answer
 # --------------------------------------------------
 
 if st.session_state.game_won:
