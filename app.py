@@ -80,18 +80,15 @@ st.markdown(
             color: #3f4852;
         }
 
-        .answer-box {
-            background: #132d49;
+        .clue-box {
+            background: #10263d;
             border: 1px solid #6f91b4;
-            border-radius: 9px;
-            padding: 20px;
+            border-radius: 8px;
+            padding: 16px;
             text-align: center;
-            margin-top: 22px;
-        }
-
-        .answer-box h2 {
-            color: #ffffff;
-            margin-bottom: 8px;
+            margin-top: 18px;
+            font-size: 1.1rem;
+            font-weight: 700;
         }
 
         .stMetric {
@@ -163,7 +160,10 @@ def create_combined_audio(track_count):
     command = ["ffmpeg", "-y"]
 
     for path in track_paths:
-        command.extend(["-i", str(path)])
+        command.extend([
+            "-i",
+            str(path),
+        ])
 
     filter_text = (
         f"amix=inputs={track_count}:"
@@ -172,20 +172,18 @@ def create_combined_audio(track_count):
         "normalize=1"
     )
 
-    command.extend(
-        [
-            "-filter_complex",
-            filter_text,
-            "-vn",
-            "-ac",
-            "2",
-            "-ar",
-            "44100",
-            "-f",
-            "wav",
-            "pipe:1",
-        ]
-    )
+    command.extend([
+        "-filter_complex",
+        filter_text,
+        "-vn",
+        "-ac",
+        "2",
+        "-ar",
+        "44100",
+        "-f",
+        "wav",
+        "pipe:1",
+    ])
 
     result = subprocess.run(
         command,
@@ -297,8 +295,8 @@ if "guess_number" not in st.session_state:
 if "guesses" not in st.session_state:
     st.session_state.guesses = []
 
-if "game_won" not in st.session_state:
-    st.session_state.game_won = False
+if "clue_shown" not in st.session_state:
+    st.session_state.clue_shown = False
 
 
 # -----------------------------
@@ -383,13 +381,12 @@ try:
         format="audio/wav",
     )
 
-    st.caption(
-        "All unlocked tracks are combined from the beginning."
-    )
-
 except Exception as error:
     st.error("Could not combine the audio.")
-    st.code(str(error), language="text")
+    st.code(
+        str(error),
+        language="text",
+    )
 
 
 # -----------------------------
@@ -458,15 +455,14 @@ else:
 # Submit guess
 # -----------------------------
 
-button_disabled = (
+guess_button_disabled = (
     not final_guess
     or st.session_state.guess_number >= 5
-    or st.session_state.game_won
 )
 
 if st.button(
     "Submit Guess",
-    disabled=button_disabled,
+    disabled=guess_button_disabled,
     use_container_width=True,
 ):
     st.session_state.guess_number += 1
@@ -474,9 +470,6 @@ if st.button(
     st.session_state.guesses.append(
         final_guess
     )
-
-    if st.session_state.guess_number >= 5:
-        st.session_state.game_won = True
 
     st.rerun()
 
@@ -492,30 +485,31 @@ if st.session_state.guesses:
         st.session_state.guesses,
         start=1,
     ):
-        if number < 5:
-            st.write(
-                f"**Guess {number}:** "
-                f"{guess} — ❌"
-            )
-        else:
-            st.write(
-                f"**Guess {number}:** "
-                f"{guess} — 🎉"
-            )
+        st.write(
+            f"**Guess {number}:** "
+            f"{guess} — ❌"
+        )
 
 
 # -----------------------------
-# Final answer
+# Get a clue
 # -----------------------------
 
-if st.session_state.game_won:
-    st.markdown(
-        """
-        <div class="answer-box">
-            <h2>HAPPY BIRTHDAY IAN</h2>
-            <h3>“HAPPY BIRTHDAY IAN”</h3>
-            <p>by <strong>Lil Snatch</strong></p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+if st.session_state.guess_number >= 5:
+    if not st.session_state.clue_shown:
+        if st.button(
+            "Get a clue",
+            use_container_width=True,
+        ):
+            st.session_state.clue_shown = True
+            st.rerun()
+
+    else:
+        st.markdown(
+            """
+            <div class="clue-box">
+                phone a friend
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
