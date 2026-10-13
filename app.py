@@ -1,22 +1,18 @@
-import base64
-# import json
+from io import BytesIO
 from pathlib import Path
+import base64
 
 import requests
 import streamlit as st
-# import streamlit.components.v1 as components
-
-from io import BytesIO
 from pydub import AudioSegment
 
 
 # --------------------------------------------------
-# Page settings
+# Page setup
 # --------------------------------------------------
 
 st.set_page_config(
     page_title="Normal Bandle",
-    page_icon="🎵",
     layout="centered",
 )
 
@@ -31,34 +27,6 @@ st.markdown(
         .stApp {
             background: linear-gradient(180deg, #321d43, #17131d);
             color: white;
-        }
-
-        .song-info {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-            margin-bottom: 25px;
-        }
-
-        .info-box {
-            background: #292331;
-            border: 1px solid #51445c;
-            border-radius: 12px;
-            padding: 14px 8px;
-            text-align: center;
-        }
-
-        .info-label {
-            display: block;
-            color: #aaa1b3;
-            font-size: 12px;
-            margin-bottom: 5px;
-        }
-
-        .info-value {
-            display: block;
-            color: #f5ba3c;
-            font-weight: bold;
         }
 
         .track-box {
@@ -93,12 +61,6 @@ st.markdown(
         .answer-box h2 {
             color: #f5ba3c;
         }
-
-        @media (max-width: 500px) {
-            .song-info {
-                grid-template-columns: 1fr;
-            }
-        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -106,27 +68,118 @@ st.markdown(
 
 
 # --------------------------------------------------
-# Spotify search
+# File locations
+# --------------------------------------------------
+
+AUDIO_FOLDER = Path(__file__).parent / "audio"
+
+TRACK_NAMES = [
+    "drums",
+    "bass",
+    "misc",
+    "backup",
+    "star vocals",
+]
+
+
+# --------------------------------------------------
+# Mix audio tracks
+# --------------------------------------------------
+
+@st.cache_data
+def create_combined_audio(track_count):
+    """
+    Mixes the first track_count MP3 files together.
+
+    Every track begins at time zero.
+    Tracks do not get stretched or time-distorted.
+    Shorter tracks simply end when their audio ends.
+    """
+
+    track_paths = [
+        AUDIO_FOLDER / f"track{i}.mp3"
+        for i in range(1, track_count + 1)
+    ]
+
+    missing_files = [
+        str(path)
+        for path in track_paths
+        if not path.exists()
+    ]
+
+    if missing_files:
+        raise FileNotFoundError(
+            "Missing audio file(s): "
+            + ", ".join(missing_files)
+        )
+
+    # Load the first track.
+    combined = AudioSegment.from_file(
+        track_paths[0],
+        format="mp3",
+    )
+
+    # Standardize format without changing the timing.
+    combined = (
+        combined
+        .set_frame_rate(44100)
+        .set_channels(2)
+        .set_sample_width(2)
+    )
+
+    # Overlay every additional track from time zero.
+    for track_path in track_paths[1:]:
+        next_track = AudioSegment.from_file(
+            track_path,
+            format="mp3",
+        )
+
+        next_track = (
+            next_track
+            .set_frame_rate(44100)
+            .set_channels(2)
+            .set_sample_width(2)
+        )
+
+        combined = combined.overlay(next_track)
+
+    # Export one combined WAV file in memory.
+    output = BytesIO()
+
+    combined.export(
+        output,
+        format="wav",
+    )
+
+    return output.getvalue()
+
+
+# --------------------------------------------------
+# Spotify functions
 # --------------------------------------------------
 
 @st.cache_data(ttl=3300)
 def get_spotify_token(client_id, client_secret):
     credentials = f"{client_id}:{client_secret}"
-    encoded = base64.b64encode(
+
+    encoded_credentials = base64.b64encode(
         credentials.encode("utf-8")
     ).decode("utf-8")
 
     response = requests.post(
         "https://accounts.spotify.com/api/token",
         headers={
-            "Authorization": f"Basic {encoded}",
+            "Authorization": f"Basic {encoded_credentials}",
             "Content-Type": "application/x-www-form-urlencoded",
         },
-        data={"grant_type": "client_credentials"},
+        data={
+            "grant_type": "client_credentials",
+        },
         timeout=10,
     )
 
     response.raise_for_status()
+
     return response.json()["access_token"]
 
 
@@ -135,7 +188,10 @@ def search_spotify(query, client_id, client_secret):
     if not query.strip():
         return []
 
-    token = get_spotify_token(client_id, client_secret)
+    token = get_spotify_token(
+        client_id,
+        client_secret,
+    )
 
     response = requests.get(
         "https://api.spotify.com/v1/search",
@@ -152,7 +208,13 @@ def search_spotify(query, client_id, client_secret):
 
     response.raise_for_status()
 
-    tracks = response.json().get("tracks", {}).get("items", [])
+    tracks = response.json().get(
+        "tracks",
+        {},
+    ).get(
+        "items",
+        [],
+    )
 
     results = []
 
@@ -170,114 +232,6 @@ def search_spotify(query, client_id, client_secret):
 
 
 # --------------------------------------------------
-# Audio mixing
-# --------------------------------------------------
-
-AUDIO_FOLDER = Path(__file__).parent / "audio"
-
-TRACK_NAMES = [
-    "drums",
-    "bass",
-    "misc",
-    "backup",
-    "star vocals",
-]
-
-TRACK_FILES = [
-    AUDIO_FOLDER / "track1.mp3",
-    AUDIO_FOLDER / "track2.mp3",
-    AUDIO_FOLDER / "track3.mp3",
-    AUDIO_FOLDER / "track4.mp3",
-    AUDIO_FOLDER / "track5.mp3",
-]
-
-
-@st.cache_data
-def load_audio_as_base64(file_path):
-    with open(file_path, "rb") as audio_file:
-        return base64.b64encode(audio_file.read()).decode("utf-8")
-
-
-def get_audio_tracks(number_of_tracks):
-    audio_tracks = []
-
-    for file_path in TRACK_FILES[:number_of_tracks]:
-        if file_path.exists():
-            audio_tracks.append(
-                load_audio_as_base64(file_path)
-            )
-
-    return audio_tracks
-
-
-@st.cache_data
-def create_combined_audio(track_count):
-    """
-    Mixes track1.mp3 through trackN.mp3 together.
-    Every track starts at time zero.
-    Shorter tracks simply end earlier.
-    """
-
-    audio_folder = Path(__file__).parent / "audio"
-
-    track_paths = [
-        audio_folder / f"track{i}.mp3"
-        for i in range(1, track_count + 1)
-    ]
-
-    missing_files = [
-        str(path)
-        for path in track_paths
-        if not path.exists()
-    ]
-
-    if missing_files:
-        raise FileNotFoundError(
-            "Missing audio file(s): " + ", ".join(missing_files)
-        )
-
-    # Load the first track as the base.
-    combined = AudioSegment.from_file(
-        track_paths[0],
-        format="mp3",
-    )
-
-    # Standardize audio format for reliable mixing.
-    combined = (
-        combined
-        .set_frame_rate(44100)
-        .set_channels(2)
-        .set_sample_width(2)
-    )
-
-    # Add each later track at time zero.
-    for track_path in track_paths[1:]:
-        next_track = AudioSegment.from_file(
-            track_path,
-            format="mp3",
-        )
-
-        next_track = (
-            next_track
-            .set_frame_rate(44100)
-            .set_channels(2)
-            .set_sample_width(2)
-        )
-
-        combined = combined.overlay(next_track)
-
-    # Convert the final mix to WAV bytes.
-    output = BytesIO()
-
-    combined.export(
-        output,
-        format="wav",
-    )
-
-    return output.getvalue()
-
-
-# --------------------------------------------------
 # Session state
 # --------------------------------------------------
 
@@ -291,7 +245,9 @@ if "game_won" not in st.session_state:
     st.session_state.game_won = False
 
 
-# Top-of-page song info
+# --------------------------------------------------
+# Song information at the top
+# --------------------------------------------------
 
 info_col1, info_col2, info_col3 = st.columns(3)
 
@@ -309,7 +265,7 @@ with info_col3:
 # Title
 # --------------------------------------------------
 
-st.title("🎵 Normal Bandle")
+st.title("Normal Bandle")
 
 st.markdown(
     "<p style='text-align:center; color:#c8bfd0;'>"
@@ -320,13 +276,18 @@ st.markdown(
 
 
 # --------------------------------------------------
-# Track labels
+# Determine which tracks are unlocked
 # --------------------------------------------------
 
 current_track_count = min(
     st.session_state.guess_number + 1,
     5,
 )
+
+
+# --------------------------------------------------
+# Track labels
+# --------------------------------------------------
 
 for index, track_name in enumerate(TRACK_NAMES):
     track_number = index + 1
@@ -338,6 +299,7 @@ for index, track_name in enumerate(TRACK_NAMES):
                 <div class="track-name">
                     {track_name.upper()}
                 </div>
+                Unlocked
             </div>
             """,
             unsafe_allow_html=True,
@@ -357,17 +319,27 @@ for index, track_name in enumerate(TRACK_NAMES):
 
 
 # --------------------------------------------------
-# One current combined audio player
+# One combined audio player
 # --------------------------------------------------
 
-audio_tracks = get_audio_tracks(current_track_count)
+try:
+    combined_audio = create_combined_audio(
+        current_track_count
+    )
 
-if audio_tracks:
-    show_combined_audio(audio_tracks)
-else:
+    st.audio(
+        combined_audio,
+        format="audio/wav",
+    )
+
+    st.caption(
+        "All unlocked tracks are combined from the beginning."
+    )
+
+except Exception as error:
     st.error(
-        "No audio files were found. Make sure your files are inside "
-        "the audio folder and are named track1.mp3 through track5.mp3."
+        "Could not combine the audio. "
+        f"Details: {error}"
     )
 
 
@@ -382,8 +354,22 @@ guess_text = st.text_input(
     placeholder="Start typing a song title...",
 )
 
-client_id = st.secrets.get("SPOTIFY_CLIENT_ID", "")
-client_secret = st.secrets.get("SPOTIFY_CLIENT_SECRET", "")
+
+# Safely read Spotify secrets.
+try:
+    client_id = st.secrets.get(
+        "SPOTIFY_CLIENT_ID",
+        "",
+    )
+
+    client_secret = st.secrets.get(
+        "SPOTIFY_CLIENT_SECRET",
+        "",
+    )
+except Exception:
+    client_id = ""
+    client_secret = ""
+
 
 spotify_results = []
 
@@ -406,6 +392,7 @@ if guess_text.strip() and len(guess_text.strip()) >= 2:
             "You can still submit your typed guess."
         )
 
+
 if spotify_results:
     selected_result = st.selectbox(
         "Choose a search result:",
@@ -418,7 +405,7 @@ else:
 
 
 # --------------------------------------------------
-# Guess button
+# Submit guess
 # --------------------------------------------------
 
 button_disabled = (
@@ -434,7 +421,9 @@ if st.button(
 ):
     st.session_state.guess_number += 1
 
-    st.session_state.guesses.append(final_guess)
+    st.session_state.guesses.append(
+        final_guess
+    )
 
     if st.session_state.guess_number >= 5:
         st.session_state.game_won = True
@@ -454,9 +443,15 @@ if st.session_state.guesses:
         start=1,
     ):
         if number < 5:
-            st.write(f"**Guess {number}:** {guess} — ❌")
+            st.write(
+                f"**Guess {number}:** "
+                f"{guess} — ❌"
+            )
         else:
-            st.write(f"**Guess {number}:** {guess} — 🎉")
+            st.write(
+                f"**Guess {number}:** "
+                f"{guess} — 🎉"
+            )
 
 
 # --------------------------------------------------
@@ -467,7 +462,6 @@ if st.session_state.game_won:
     st.markdown(
         """
         <div class="answer-box">
-            <div style="font-size: 32px;">🎉 🎂 🎉</div>
             <h2>HAPPY BIRTHDAY IAN</h2>
             <h3>“HAPPY BIRTHDAY IAN”</h3>
             <p>by <strong>Lil Snatch</strong></p>
